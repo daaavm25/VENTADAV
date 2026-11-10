@@ -1,0 +1,8 @@
+[
+  {"id": 1, "nombre": "Arroz 1kg", "precio": 28.5, "stock": 45, "categoria": "Granos"},
+  {"id": 2, "nombre": "Frijol 1kg", "precio": 36.0, "stock": 32, "categoria": "Granos"},
+  {"id": 3, "nombre": "Leche 1L", "precio": 24.0, "stock": 50, "categoria": "Lacteos"},
+  {"id": 4, "nombre": "Huevo 18 pzas", "precio": 62.0, "stock": 20, "categoria": "Abarrotes"},
+  {"id": 5, "nombre": "Azucar 1kg", "precio": 31.0, "stock": 40, "categoria": "Granos"},
+  {"id": 6, "nombre": "Cafe soluble 100g", "precio": 89.0, "stock": 18, "categoria": "Bebidas"}
+]

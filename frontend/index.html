@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>PDV Abarrotera</title>
+    <link rel="stylesheet" href="styles.css?v=20261103" />
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero__overlay"></div>
+      <div class="hero__content container">
+        <p class="kicker">Tienda Santa Cruz</p>
+        <h1>Punto de venta</h1>
+      </div>
+    </header>
+
+    <main class="container layout">
+      <section class="card">
+        <h2>Buscar producto</h2>
+        <div class="search-wrap">
+          <input
+            id="busqueda"
+            type="text"
+            list="sugerenciasProductos"
+            placeholder="Escribe nombre del producto..."
+            autocomplete="off"
+          />
+          <datalist id="sugerenciasProductos"></datalist>
+          <button id="limpiarBusqueda" class="btn btn--ghost" type="button">Limpiar</button>
+        </div>
+        <p id="estadoBusqueda" class="muted">Escribe para filtrar productos.</p>
+        <p id="estadoApi" class="muted"></p>
+        <div id="resultados" class="resultados"></div>
+      </section>
+
+      <section class="card">
+        <h2>Agregar producto</h2>
+        <form id="formProducto" class="form-grid">
+          <label>
+            Nombre
+            <input id="nombreProducto" name="nombre" type="text" required />
+          </label>
+          <label>
+            Categoria
+            <select id="categoriaProducto" name="categoria_id" required></select>
+          </label>
+          <label>
+            Precio venta
+            <input id="precioVenta" name="precio_venta" type="number" min="0" step="0.01" required />
+          </label>
+          <label>
+            Stock inicial
+            <input id="stockInicial" name="stock_actual" type="number" min="0" step="1" required />
+          </label>
+          <label>
+            Codigo de barras
+            <input id="codigoBarras" name="codigo_barras" type="text" />
+          </label>
+          <label>
+            SKU
+            <input id="skuProducto" name="sku" type="text" />
+          </label>
+          <button class="btn" type="submit">Guardar en base de datos</button>
+        </form>
+        <p id="mensajeProducto" class="mensaje"></p>
+      </section>
+
+      <section class="card">
+        <h2>Carrito de compra</h2>
+        <div id="carrito" class="carrito"></div>
+        <div class="totales">
+          <p><span>Subtotal</span><strong id="subtotal">$0.00</strong></p>
+          <p class="total"><span>Total</span><strong id="total">$0.00</strong></p>
+        </div>
+        <div class="acciones">
+          <button id="vaciarCarrito" class="btn btn--danger" type="button">Vaciar carrito</button>
+          <button id="finalizarCompra" class="btn" type="button">Finalizar compra</button>
+        </div>
+        <p id="mensaje" class="mensaje"></p>
+      </section>
+
+      <section class="card card--wide">
+        <div class="historial-header">
+          <h2>Historial del día</h2>
+          <div class="historial-toggler">
+            <button class="btn btn--ghost small active" data-historial-scope="hoy" type="button">Hoy</button>
+            <button class="btn btn--ghost small" data-historial-scope="ayer" type="button">Ayer</button>
+            <button class="btn btn--ghost small" data-historial-scope="all" type="button">Todo</button>
+          </div>
+        </div>
+        <div id="historialVentas" class="historial-ventas"></div>
+      </section>
+    </main>
+
+    <script src="app.js?v=20261103"></script>
+  </body>
+</html>
