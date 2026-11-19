@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Entrada y Salida de Producto</title>
+    <link rel="stylesheet" href="styles.css?v=20261118-stock1" />
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero__overlay"></div>
+      <div class="hero__content container">
+        <p class="kicker">Inventario</p>
+        <h1>Entrada y salida de producto</h1>
+      </div>
+    </header>
+
+    <main class="container layout">
+      <section class="card card--wide">
+        <div class="acciones">
+          <button id="volverInicio" class="btn btn--ghost" type="button">Regresar al inicio</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Registrar movimiento</h2>
+        <form id="formMovimiento" class="form-grid">
+          <label>
+            Producto
+            <select id="movProducto" required></select>
+          </label>
+          <label>
+            Tipo
+            <select id="movTipo" required>
+              <option value="entrada">Entrada</option>
+              <option value="salida">Salida</option>
+            </select>
+          </label>
+          <label>
+            Cantidad
+            <input id="movCantidad" type="number" min="1" step="1" required />
+          </label>
+          <label>
+            Motivo
+            <input id="movMotivo" type="text" placeholder="Ajuste de inventario" required />
+          </label>
+          <button class="btn" type="submit">Guardar movimiento</button>
+        </form>
+        <p id="movMensaje" class="mensaje"></p>
+      </section>
+
+      <section class="card card--wide">
+        <h2>Productos y stock actual</h2>
+        <div class="table-wrap">
+          <table class="tabla-stock">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Categoria</th>
+                <th>Precio</th>
+                <th>Stock</th>
+              </tr>
+            </thead>
+            <tbody id="inventarioBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="inventario.js?v=20261118-stock1"></script>
+  </body>
+</html>

@@ -111,6 +111,88 @@ def ventas_handler():
     return crear_venta()
 
 
+@app.route("/api/inventario/movimientos", methods=["POST", "OPTIONS"])
+def registrar_movimiento_inventario():
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    payload = request.get_json(silent=True) or {}
+
+    try:
+        producto_id = int(payload.get("producto_id"))
+        tipo = str(payload.get("tipo", "")).strip().lower()
+        cantidad = Decimal(str(payload.get("cantidad", 0)))
+        motivo = str(payload.get("motivo", "")).strip() or "Ajuste manual"
+    except (TypeError, ValueError, InvalidOperation):
+        return jsonify({"ok": False, "errores": ["Datos de movimiento invalidos."]}), 400
+
+    if tipo not in {"entrada", "salida"}:
+        return jsonify({"ok": False, "errores": ["El tipo debe ser entrada o salida."]}), 400
+
+    if cantidad <= 0:
+        return jsonify({"ok": False, "errores": ["La cantidad debe ser mayor a 0."]}), 400
+
+    try:
+        with get_db_conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT id, nombre, stock_actual
+                    FROM productos
+                    WHERE id = %s AND activo = TRUE
+                    FOR UPDATE
+                    """,
+                    (producto_id,),
+                )
+                producto = cur.fetchone()
+
+                if producto is None:
+                    return jsonify({"ok": False, "errores": ["Producto no encontrado."]}), 404
+
+                stock_actual = Decimal(str(producto["stock_actual"]))
+                if tipo == "salida" and stock_actual < cantidad:
+                    return jsonify({"ok": False, "errores": ["Stock insuficiente para salida."]}), 400
+
+                signo = Decimal("1") if tipo == "entrada" else Decimal("-1")
+                nuevo_stock = stock_actual + (cantidad * signo)
+
+                cur.execute(
+                    """
+                    UPDATE productos
+                    SET stock_actual = %s, updated_at = NOW()
+                    WHERE id = %s
+                    """,
+                    (float(nuevo_stock), producto_id),
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO movimientos_inventario (
+                      producto_id, tipo, cantidad, motivo, referencia_tabla, referencia_id, usuario_id
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (producto_id, tipo, float(cantidad), motivo, "manual", None, 1),
+                )
+
+                conn.commit()
+
+        return jsonify(
+            {
+                "ok": True,
+                "movimiento": {
+                    "producto_id": producto_id,
+                    "tipo": tipo,
+                    "cantidad": float(cantidad),
+                    "motivo": motivo,
+                    "stock_actual": float(nuevo_stock),
+                },
+            }
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "errores": [f"Error al registrar movimiento: {exc}"]}), 500
+
+
 def listar_productos():
     with get_db_conn() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:

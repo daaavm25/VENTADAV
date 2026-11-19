@@ -1,4 +1,5 @@
 const API_BASE = `http://${window.location.hostname}:5000/api`;
+const STOCK_MINIMO_ALERTA = 5;
 
 const productos = [];
 let categorias = [];
@@ -32,6 +33,10 @@ const estadoBusquedaEl = document.getElementById("estadoBusqueda");
 const formProducto = document.getElementById("formProducto");
 const categoriaProductoSelect = document.getElementById("categoriaProducto");
 const mensajeProductoEl = document.getElementById("mensajeProducto");
+const alertaStockBox = document.getElementById("alertaStockBox");
+const alertaStockTexto = document.getElementById("alertaStockTexto");
+const abrirAlertaStockBtn = document.getElementById("abrirAlertaStock");
+const abrirVentanaInventarioBtn = document.getElementById("abrirVentanaInventario");
 const carritoEl = document.getElementById("carrito");
 const subtotalEl = document.getElementById("subtotal");
 const totalEl = document.getElementById("total");
@@ -57,6 +62,41 @@ function mapProductoApi(productoApi) {
   };
 }
 
+function obtenerProductosStockMinimo() {
+  return productos
+    .filter((producto) => Number(producto.stock) <= STOCK_MINIMO_ALERTA)
+    .sort((a, b) => a.stock - b.stock || a.nombre.localeCompare(b.nombre));
+}
+
+function renderAlertaStock() {
+  if (!alertaStockBox || !alertaStockTexto) {
+    return;
+  }
+
+  const productosBajoStock = obtenerProductosStockMinimo();
+  if (!productosBajoStock.length) {
+    alertaStockBox.hidden = true;
+    return;
+  }
+
+  const etiquetas = productosBajoStock.slice(0, 3).map((p) => `${p.nombre} (${p.stock})`);
+  const resumen = etiquetas.join(", ");
+  const restantes = productosBajoStock.length - etiquetas.length;
+
+  alertaStockTexto.textContent = restantes > 0
+    ? `${resumen} y ${restantes} producto(s) mas tienen stock en ${STOCK_MINIMO_ALERTA} o menos.`
+    : `${resumen} tiene(n) stock en ${STOCK_MINIMO_ALERTA} o menos.`;
+  alertaStockBox.hidden = false;
+}
+
+function abrirVentanaStockMinimo() {
+  window.open("stock_alertas.html", "_blank", "noopener,noreferrer");
+}
+
+function abrirVentanaInventario() {
+  window.open("inventario.html", "_blank", "noopener,noreferrer");
+}
+
 async function cargarCategorias() {
   const response = await fetch(`${API_BASE}/categorias`);
   if (!response.ok) {
@@ -80,6 +120,7 @@ async function cargarProductos() {
   productos.length = 0;
   productos.push(...rows.map(mapProductoApi));
   renderResultados();
+  renderAlertaStock();
 }
 
 function renderCategorias() {
@@ -113,6 +154,7 @@ async function inicializarApi() {
     productos.push(...FALLBACK_PRODUCTOS);
     renderCategorias();
     renderResultados();
+    renderAlertaStock();
     estadoApiEl.textContent = "API no disponible: usando modo local. Inicia backend/src/api.py para guardar en BD.";
   }
 }
@@ -470,6 +512,7 @@ async function guardarProductoEnDb(event) {
     formProducto.reset();
     mensajeProductoEl.textContent = `Producto guardado: ${nuevoProducto.nombre}.`;
     renderResultados();
+    renderAlertaStock();
   } catch (error) {
     mensajeProductoEl.textContent = "Error al guardar en base de datos. Verifica la API y credenciales PostgreSQL.";
   }
@@ -534,6 +577,14 @@ carritoEl.addEventListener("click", (event) => {
 vaciarCarritoBtn.addEventListener("click", vaciarCarrito);
 finalizarCompraBtn.addEventListener("click", finalizarCompra);
 formProducto.addEventListener("submit", guardarProductoEnDb);
+
+if (abrirAlertaStockBtn) {
+  abrirAlertaStockBtn.addEventListener("click", abrirVentanaStockMinimo);
+}
+
+if (abrirVentanaInventarioBtn) {
+  abrirVentanaInventarioBtn.addEventListener("click", abrirVentanaInventario);
+}
 
 document.querySelectorAll("[data-historial-scope]").forEach((btn) => {
   btn.addEventListener("click", () => {

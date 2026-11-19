@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alerta de Stock Minimo</title>
+    <link rel="stylesheet" href="styles.css?v=20261118-stock1" />
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero__overlay"></div>
+      <div class="hero__content container">
+        <p class="kicker">Inventario</p>
+        <h1>Productos con stock minimo</h1>
+      </div>
+    </header>
+
+    <main class="container layout">
+      <section class="card card--wide">
+        <div class="acciones">
+          <button id="volverInicio" class="btn btn--ghost" type="button">Regresar al inicio</button>
+        </div>
+      </section>
+
+      <section class="card card--wide">
+        <h2 id="alertaResumen">Cargando productos...</h2>
+        <div class="table-wrap">
+          <table class="tabla-stock">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Categoria</th>
+                <th>Precio</th>
+                <th>Stock</th>
+              </tr>
+            </thead>
+            <tbody id="stockBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="stock_alertas.js?v=20261118-stock1"></script>
+  </body>
+</html>

@@ -19,6 +19,22 @@
     </header>
 
     <main class="container layout">
+      <section id="alertaStockBox" class="card stock-alert" hidden>
+        <div class="stock-alert__content">
+          <strong>Alerta de stock minimo</strong>
+          <p id="alertaStockTexto" class="muted">Hay productos con stock bajo.</p>
+        </div>
+        <button id="abrirAlertaStock" class="btn btn--danger" type="button">Ver productos en riesgo</button>
+      </section>
+
+      <section class="card">
+        <h2>Inventario</h2>
+        <p class="muted">Registra entradas y salidas de producto en una ventana dedicada.</p>
+        <div class="acciones">
+          <button id="abrirVentanaInventario" class="btn" type="button">Abrir entrada y salida</button>
+        </div>
+      </section>
+
       <section class="card">
         <h2>Buscar producto</h2>
         <div class="search-wrap">
@@ -96,6 +112,6 @@
       </section>
     </main>
 
-    <script src="app.js?v=20261103"></script>
+    <script src="app.js?v=20261118-stock1"></script>
   </body>
 </html>

@@ -88,6 +88,54 @@ h1 {
   padding: 1.1rem;
 }
 
+.stock-alert {
+  grid-column: 1 / -1;
+  border: 1px solid #f7b4ae;
+  background: linear-gradient(180deg, #fff1ef 0%, #ffe3df 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.stock-alert .muted {
+  color: #7a1b12;
+}
+
+.stock-alert__content {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.tabla-stock {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid #e8ddcf;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.tabla-stock th,
+.tabla-stock td {
+  text-align: left;
+  padding: 0.65rem 0.7rem;
+  border-bottom: 1px solid #eee2d5;
+}
+
+.tabla-stock thead {
+  background: #f5ece2;
+}
+
+.tabla-stock tbody tr:hover {
+  background: #faf4ec;
+}
+
+.tabla-stock tr.row--low {
+  background: #ffe6e3;
+  color: #7a1b12;
+  font-weight: 700;
+}
+
 .card h2 {
   margin-top: 0;
 }
