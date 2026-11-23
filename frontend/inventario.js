@@ -50,9 +50,19 @@ function renderTabla() {
 }
 
 async function cargarProductos() {
-  const response = await fetch(`${API_BASE}/productos`, { cache: "no-store" });
+  const token = localStorage.getItem("pdv_auth_token");
+  if (!token) {
+    movMensaje.textContent = "Inicia sesión desde el punto de venta para usar inventario.";
+    throw new Error("Sesión no iniciada");
+  }
+
+  const response = await fetch(`${API_BASE}/productos`, {
+    cache: "no-store",
+    headers: { "X-Auth-Token": token }
+  });
   if (!response.ok) {
-    throw new Error("No se pudieron cargar productos");
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.errores?.join(" | ") || "No se pudieron cargar productos");
   }
 
   productos = await response.json();
@@ -76,10 +86,12 @@ async function guardarMovimiento(event) {
   }
 
   try {
+    const token = localStorage.getItem("pdv_auth_token");
     const response = await fetch(`${API_BASE}/inventario/movimientos`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...(token ? { "X-Auth-Token": token } : {})
       },
       body: JSON.stringify(payload)
     });

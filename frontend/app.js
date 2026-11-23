@@ -23,6 +23,11 @@ const FALLBACK_PRODUCTOS = [
 
 const carrito = [];
 let historialScope = "hoy";
+const LOGIN_TOKEN_KEY = "pdv_auth_token";
+let sesionUsuario = null;
+
+let alertaStockTimer = null;
+let alertaStockFirma = null;
 
 const busquedaInput = document.getElementById("busqueda");
 const sugerenciasEl = document.getElementById("sugerenciasProductos");
@@ -44,6 +49,24 @@ const historialVentasEl = document.getElementById("historialVentas");
 const vaciarCarritoBtn = document.getElementById("vaciarCarrito");
 const finalizarCompraBtn = document.getElementById("finalizarCompra");
 const mensajeEl = document.getElementById("mensaje");
+const loginOverlay = document.getElementById("loginOverlay");
+const loginForm = document.getElementById("loginForm");
+const loginUsuario = document.getElementById("loginUsuario");
+const loginPassword = document.getElementById("loginPassword");
+const loginMensaje = document.getElementById("loginMensaje");
+const userSessionBar = document.getElementById("userSessionBar");
+const sessionUsuario = document.getElementById("sessionUsuario");
+const cerrarSesionBtn = document.getElementById("cerrarSesionBtn");
+const registroForm = document.getElementById("registroForm");
+const registroNombre = document.getElementById("registroNombre");
+const registroUsuario = document.getElementById("registroUsuario");
+const registroPassword = document.getElementById("registroPassword");
+const registroTelefono = document.getElementById("registroTelefono");
+const registroMensaje = document.getElementById("registroMensaje");
+const mostrarLogin = document.getElementById("mostrarLogin");
+const mostrarRegistro = document.getElementById("mostrarRegistro");
+const abrirVentanaPedidosBtn = document.getElementById("abrirVentanaPedidos");
+const pedidosBadge = document.getElementById("pedidosBadge");
 
 function formatMoney(value) {
   return new Intl.NumberFormat("es-MX", {
@@ -75,9 +98,18 @@ function renderAlertaStock() {
 
   const productosBajoStock = obtenerProductosStockMinimo();
   if (!productosBajoStock.length) {
+    if (alertaStockTimer) {
+      clearTimeout(alertaStockTimer);
+      alertaStockTimer = null;
+    }
+    alertaStockFirma = null;
     alertaStockBox.hidden = true;
     return;
   }
+
+  const firmaActual = productosBajoStock
+    .map((producto) => `${producto.id}:${producto.stock}`)
+    .join("|");
 
   const etiquetas = productosBajoStock.slice(0, 3).map((p) => `${p.nombre} (${p.stock})`);
   const resumen = etiquetas.join(", ");
@@ -86,7 +118,22 @@ function renderAlertaStock() {
   alertaStockTexto.textContent = restantes > 0
     ? `${resumen} y ${restantes} producto(s) mas tienen stock en ${STOCK_MINIMO_ALERTA} o menos.`
     : `${resumen} tiene(n) stock en ${STOCK_MINIMO_ALERTA} o menos.`;
+
+  if (firmaActual === alertaStockFirma) {
+    return;
+  }
+
+  alertaStockFirma = firmaActual;
+
+  if (alertaStockTimer) {
+    clearTimeout(alertaStockTimer);
+  }
+
   alertaStockBox.hidden = false;
+  alertaStockTimer = setTimeout(() => {
+    alertaStockBox.hidden = true;
+    alertaStockTimer = null;
+  }, 5000);
 }
 
 function abrirVentanaStockMinimo() {
@@ -97,8 +144,12 @@ function abrirVentanaInventario() {
   window.open("inventario.html", "_blank", "noopener,noreferrer");
 }
 
+function abrirVentanaPedidos() {
+  window.open("pedidos.html", "_blank", "noopener,noreferrer");
+}
+
 async function cargarCategorias() {
-  const response = await fetch(`${API_BASE}/categorias`);
+  const response = await fetch(`${API_BASE}/categorias`, { headers: authHeaders() });
   if (!response.ok) {
     throw new Error("No se pudieron cargar categorias");
   }
@@ -111,7 +162,7 @@ async function cargarCategorias() {
 }
 
 async function cargarProductos() {
-  const response = await fetch(`${API_BASE}/productos`);
+  const response = await fetch(`${API_BASE}/productos`, { headers: authHeaders(), cache: "no-store" });
   if (!response.ok) {
     throw new Error("No se pudieron cargar productos");
   }
@@ -121,6 +172,24 @@ async function cargarProductos() {
   productos.push(...rows.map(mapProductoApi));
   renderResultados();
   renderAlertaStock();
+}
+
+async function cargarPedidos() {
+  if (!sesionUsuario || !["admin", "cajero"].includes(sesionUsuario.rol)) return;
+
+  try {
+    const response = await fetch(`${API_BASE}/pedidos`, {
+      headers: authHeaders(),
+      cache: "no-store",
+    });
+    if (!response.ok) return;
+    const pedidos = await response.json();
+    const nuevos = Array.isArray(pedidos) ? pedidos.length : 0;
+    pedidosBadge.textContent = String(nuevos);
+    pedidosBadge.hidden = nuevos === 0;
+  } catch (error) {
+    pedidosBadge.hidden = true;
+  }
 }
 
 function renderCategorias() {
@@ -401,7 +470,7 @@ async function cargarHistorialVentas(scope = historialScope) {
   historialScope = scope;
 
   try {
-    const response = await fetch(`${API_BASE}/ventas?scope=${scope}`);
+    const response = await fetch(`${API_BASE}/ventas?scope=${scope}`, { headers: authHeaders(), cache: "no-store" });
     if (!response.ok) {
       throw new Error("No se pudo cargar el historial");
     }
@@ -443,9 +512,7 @@ async function finalizarCompra() {
   try {
     const response = await fetch(`${API_BASE}/ventas`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload)
     });
 
@@ -493,9 +560,7 @@ async function guardarProductoEnDb(event) {
   try {
     const response = await fetch(`${API_BASE}/productos`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload)
     });
 
@@ -516,6 +581,11 @@ async function guardarProductoEnDb(event) {
   } catch (error) {
     mensajeProductoEl.textContent = "Error al guardar en base de datos. Verifica la API y credenciales PostgreSQL.";
   }
+}
+
+// Oculta cualquier alerta heredada del HTML hasta que exista stock bajo real.
+if (alertaStockBox) {
+  alertaStockBox.hidden = true;
 }
 
 busquedaInput.addEventListener("input", () => {
@@ -586,12 +656,335 @@ if (abrirVentanaInventarioBtn) {
   abrirVentanaInventarioBtn.addEventListener("click", abrirVentanaInventario);
 }
 
+if (abrirVentanaPedidosBtn) {
+  abrirVentanaPedidosBtn.addEventListener("click", abrirVentanaPedidos);
+}
+
 document.querySelectorAll("[data-historial-scope]").forEach((btn) => {
   btn.addEventListener("click", () => {
     cargarHistorialVentas(btn.dataset.historialScope);
   });
 });
 
-inicializarApi();
-cargarHistorialVentas(historialScope);
-renderCarrito();
+if (loginForm) {
+  loginForm.addEventListener("submit", iniciarSesion);
+}
+if (cerrarSesionBtn) {
+  // El controlador principal de cierre se registra al final del archivo.
+}
+
+async function iniciarAplicacion() {
+  actualizarEstadoSesion();
+  await restaurarSesion();
+  renderCarrito();
+
+  if (!sesionUsuario) {
+    estadoApiEl.textContent = "Inicia sesión para conectar con PostgreSQL.";
+    return;
+  }
+
+  await inicializarApi();
+  await cargarHistorialVentas(historialScope);
+}
+
+// Inicialización
+iniciarAplicacion();
+
+// Funciones de autenticación
+function mostrarMensajeLogin(mensaje, esError = false) {
+  loginMensaje.textContent = mensaje;
+  loginMensaje.classList.toggle("error", esError);
+}
+
+function guardarTokenEnSesion(token) {
+  localStorage.setItem(LOGIN_TOKEN_KEY, token);
+}
+
+function obtenerTokenDeSesion() {
+  return localStorage.getItem(LOGIN_TOKEN_KEY);
+}
+
+function eliminarTokenDeSesion() {
+  localStorage.removeItem(LOGIN_TOKEN_KEY);
+}
+
+function actualizarEstadoSesion() {
+  const hayToken = Boolean(obtenerTokenDeSesion());
+  if (!hayToken) {
+    userSessionBar.hidden = true;
+    userSessionBar.style.removeProperty("display");
+    loginOverlay.hidden = false;
+    loginOverlay.style.removeProperty("display");
+  }
+}
+
+function authHeaders(extra = {}) {
+  const token = localStorage.getItem(LOGIN_TOKEN_KEY);
+  return token ? { ...extra, "X-Auth-Token": token } : extra;
+}
+
+function aplicarPermisos() {
+  const esAdmin = sesionUsuario?.rol === "admin";
+  const esCajero = sesionUsuario?.rol === "cajero";
+
+  if (document.querySelector("#abrirVentanaInventario")?.closest(".card")) {
+    document.querySelector("#abrirVentanaInventario").closest(".card").hidden = !esAdmin;
+  }
+  if (formProducto) {
+    formProducto.closest(".card").hidden = !esAdmin;
+  }
+
+  document.querySelectorAll("[data-historial-scope='ayer'], [data-historial-scope='all']")
+    .forEach((boton) => { boton.hidden = !esAdmin; });
+
+  if (esCajero) {
+    historialScope = "hoy";
+  }
+
+  if (userSessionBar && sessionUsuario) {
+    sessionUsuario.textContent = "";
+    sessionUsuario.hidden = true;
+    userSessionBar.classList.remove("is-leaving");
+    userSessionBar.style.removeProperty("display");
+    userSessionBar.hidden = false;
+  }
+
+  if (document.getElementById("pedidosCard")) {
+    document.getElementById("pedidosCard").hidden = !esAdmin && !esCajero;
+  }
+
+  actualizarPedidosBadge();
+}
+
+async function iniciarSesion(event) {
+  event.preventDefault();
+  loginMensaje.textContent = "Verificando...";
+
+  try {
+    const response = await fetch(`${API_BASE}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        usuario: loginUsuario.value.trim(),
+        password: loginPassword.value,
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok || !body.ok) {
+      loginMensaje.textContent = body.errores?.join(" | ") || "No se pudo iniciar sesión.";
+      return;
+    }
+
+    localStorage.setItem(LOGIN_TOKEN_KEY, body.token);
+    sesionUsuario = body.usuario;
+
+    if (sesionUsuario.rol === "cliente") {
+      window.location.href = "catalogo.html";
+      return;
+    }
+
+    loginPassword.value = "";
+    loginOverlay.classList.remove("is-entering");
+    loginOverlay.style.removeProperty("display");
+    loginOverlay.hidden = true;
+    aplicarPermisos();
+    await inicializarApi();
+    await cargarHistorialVentas("hoy");
+  } catch (error) {
+    loginMensaje.textContent = "No fue posible conectar con el backend.";
+  }
+}
+
+async function cerrarSesion() {
+  const token = localStorage.getItem(LOGIN_TOKEN_KEY);
+  if (userSessionBar) {
+    userSessionBar.classList.add("is-leaving");
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, 260));
+
+  if (token) {
+    await fetch(`${API_BASE}/auth/logout`, {
+      method: "POST",
+      headers: { "X-Auth-Token": token },
+    }).catch(() => {});
+  }
+
+  localStorage.removeItem(LOGIN_TOKEN_KEY);
+  sesionUsuario = null;
+  userSessionBar.classList.remove("is-leaving");
+  userSessionBar.style.removeProperty("display");
+  userSessionBar.hidden = true;
+  loginOverlay.hidden = false;
+  loginOverlay.style.removeProperty("display");
+  loginOverlay.classList.remove("is-entering");
+  void loginOverlay.offsetWidth;
+  loginOverlay.classList.add("is-entering");
+  loginUsuario.value = "";
+  loginPassword.value = "";
+  loginMensaje.textContent = "";
+  loginUsuario.focus();
+}
+
+async function restaurarSesion() {
+  const token = localStorage.getItem(LOGIN_TOKEN_KEY);
+  if (!token) {
+    loginOverlay.hidden = false;
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/auth/me`, { headers: { "X-Auth-Token": token } });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || !body.ok) {
+      localStorage.removeItem(LOGIN_TOKEN_KEY);
+      loginOverlay.hidden = false;
+      return;
+    }
+    sesionUsuario = body.usuario;
+    loginOverlay.hidden = true;
+    aplicarPermisos();
+  } catch (error) {
+    loginOverlay.hidden = false;
+  }
+}
+
+// Eventos de autenticación
+loginForm.addEventListener("submit", iniciarSesion);
+cerrarSesionBtn.addEventListener("click", cerrarSesion);
+
+function mostrarMensajeRegistro(mensaje, esError = false) {
+  registroMensaje.textContent = mensaje;
+  registroMensaje.classList.toggle("error", esError);
+}
+
+async function registrarUsuario(event) {
+  event.preventDefault();
+  mostrarMensajeRegistro("Registrando...");
+
+  const payload = {
+    nombre: registroNombre.value.trim(),
+    usuario: registroUsuario.value.trim(),
+    password: registroPassword.value,
+    telefono: registroTelefono.value.trim() || null
+  };
+
+  try {
+    const response = await fetch(`${API_BASE}/auth/registro`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok || !body.ok) {
+      mostrarMensajeRegistro(body.errores?.join(" | ") || "Error al registrar usuario.", true);
+      return;
+    }
+
+    mostrarMensajeRegistro("Registro exitoso. Inicia sesión.", false);
+    setTimeout(() => {
+      loginUsuario.value = payload.usuario;
+      loginPassword.value = payload.password;
+      iniciarSesion(event);
+    }, 1000);
+  } catch (error) {
+    mostrarMensajeRegistro("Error de conexión. Intenta nuevamente.", true);
+  }
+}
+
+function toggleForms() {
+  loginOverlay.classList.toggle("is-registering");
+  void loginOverlay.offsetWidth;
+  loginOverlay.classList.toggle("is-entering");
+}
+
+mostrarRegistro.addEventListener("click", (event) => {
+  event.preventDefault();
+  toggleForms();
+});
+
+mostrarLogin.addEventListener("click", (event) => {
+  event.preventDefault();
+  toggleForms();
+});
+
+registroForm.addEventListener("submit", registrarUsuario);
+
+// Cambios sugeridos
+function mostrarPestanaLogin() {
+  loginForm.hidden = false;
+  registroForm.hidden = true;
+  mostrarLogin.classList.add("active");
+  mostrarRegistro.classList.remove("active");
+  loginMensaje.textContent = "";
+}
+
+function mostrarPestanaRegistro() {
+  loginForm.hidden = true;
+  registroForm.hidden = false;
+  mostrarLogin.classList.remove("active");
+  mostrarRegistro.classList.add("active");
+  registroMensaje.textContent = "";
+}
+
+async function crearCuentaCliente(event) {
+  event.preventDefault();
+  registroMensaje.textContent = "Creando cuenta...";
+
+  try {
+    const response = await fetch(`${API_BASE}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nombre: registroNombre.value.trim(),
+        usuario: registroUsuario.value.trim(),
+        password: registroPassword.value,
+        telefono: registroTelefono.value.trim(),
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok || !body.ok) {
+      registroMensaje.textContent = body.errores?.join(" | ") || "No se pudo crear la cuenta.";
+      return;
+    }
+
+    localStorage.setItem(LOGIN_TOKEN_KEY, body.token);
+    sesionUsuario = body.usuario;
+    window.location.href = "catalogo.html";
+  } catch (error) {
+    registroMensaje.textContent = "No fue posible conectar con el backend.";
+  }
+}
+
+if (mostrarLogin) mostrarLogin.addEventListener("click", mostrarPestanaLogin);
+if (mostrarRegistro) mostrarRegistro.addEventListener("click", mostrarPestanaRegistro);
+if (registroForm) registroForm.addEventListener("submit", crearCuentaCliente);
+
+// Cambios sugeridos
+async function actualizarPedidosBadge() {
+  if (!sesionUsuario || !["admin", "cajero"].includes(sesionUsuario.rol)) return;
+  try {
+    const response = await fetch(`${API_BASE}/pedidos`, {
+      headers: authHeaders(),
+      cache: "no-store",
+    });
+    if (!response.ok) return;
+    const pedidos = await response.json();
+    const nuevos = Array.isArray(pedidos) ? pedidos.length : 0;
+    if (pedidosBadge) {
+      pedidosBadge.textContent = String(nuevos);
+      pedidosBadge.hidden = nuevos === 0;
+    }
+  } catch (error) {
+    if (pedidosBadge) pedidosBadge.hidden = true;
+  }
+}
+
+setInterval(() => {
+  if (sesionUsuario && ["admin", "cajero"].includes(sesionUsuario.rol)) {
+    actualizarPedidosBadge();
+  }
+}, 15000);

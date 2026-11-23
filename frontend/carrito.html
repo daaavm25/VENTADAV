@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Carrito - Tienda Santa Cruz</title>
+    <link rel="stylesheet" href="styles.css?v=20261121-sin-iva" />
+  </head>
+  <body>
+    <header class="hero catalog-hero">
+      <div class="hero__overlay"></div>
+      <div class="hero__content container catalog-topbar">
+        <div>
+          <p class="kicker">Tienda Santa Cruz</p>
+          <h1>Mi carrito</h1>
+        </div>
+        <button id="volverCatalogo" class="btn btn--ghost small" type="button">Volver al catálogo</button>
+      </div>
+    </header>
+
+    <main class="container cart-layout">
+      <section class="card cart-items-card">
+        <h2>Productos seleccionados</h2>
+        <div id="carritoCliente"></div>
+      </section>
+
+      <aside class="card cart-summary">
+        <p>Subtotal</p>
+        <strong id="carritoSubtotal">$0.00</strong>
+        <hr />
+        <p class="cart-total-label">Total a pagar</p>
+        <strong id="carritoTotal" class="cart-total">$0.00</strong>
+        <button id="finalizarPedido" class="btn cart-checkout" type="button">Realizar pedido</button>
+        <p id="pedidoMensaje" class="mensaje"></p>
+      </aside>
+    </main>
+
+    <script src="carrito.js?v=20261121-sin-iva"></script>
+  </body>
+</html>

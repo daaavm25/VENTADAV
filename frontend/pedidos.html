@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pedidos de clientes</title>
+    <link rel="stylesheet" href="styles.css?v=20261121-pedidos" />
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero__overlay"></div>
+      <div class="hero__content container">
+        <p class="kicker">Pedidos</p>
+        <h1>Compras de clientes</h1>
+      </div>
+    </header>
+
+    <main class="container pedidos-layout">
+      <section class="card pedidos-actions">
+        <button id="volverCajaPedidos" class="btn btn--ghost" type="button">Regresar al punto de venta</button>
+        <button id="actualizarPedidos" class="btn" type="button">Actualizar</button>
+      </section>
+
+      <section class="card pedidos-table-card">
+        <div class="pedidos-heading">
+          <div>
+            <h2>Lista de pedidos</h2>
+            <p id="pedidosEstado" class="muted">Cargando pedidos...</p>
+          </div>
+          <span id="pedidosContador" class="pedido-badge pedido-badge--large">0</span>
+        </div>
+        <div class="table-wrap">
+          <table class="tabla-pedidos">
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th>Teléfono</th>
+                <th>Folio</th>
+                <th>Productos</th>
+                <th>Total</th>
+                <th>Fecha</th>
+              </tr>
+            </thead>
+            <tbody id="pedidosBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="pedidos.js?v=20261121-pedidos"></script>
+  </body>
+</html>

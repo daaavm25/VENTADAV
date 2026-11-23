@@ -7,14 +7,64 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <title>PDV Abarrotera</title>
-    <link rel="stylesheet" href="styles.css?v=20261103" />
+    <link rel="stylesheet" href="styles.css?v=20261121-clientes" />
+    <link rel="stylesheet" href="styles.css?v=20261121-pedidos-live" />
   </head>
   <body>
+    <div id="loginOverlay" class="login-overlay">
+      <section class="login-card" role="dialog" aria-modal="true" aria-labelledby="loginTitulo">
+        <div class="login-brand">
+          <span>TIENDA SANTA CRUZ</span>
+          <h2 id="loginTitulo">Iniciar sesión</h2>
+        </div>
+        <div class="login-tabs">
+          <button id="mostrarLogin" class="login-tab active" type="button">Iniciar sesión</button>
+          <button id="mostrarRegistro" class="login-tab" type="button">Crear cuenta</button>
+        </div>
+        <form id="loginForm" class="login-form">
+          <label>
+            Usuario
+            <input id="loginUsuario" type="text" autocomplete="username" required />
+          </label>
+          <label>
+            Contraseña
+            <input id="loginPassword" type="password" autocomplete="current-password" required />
+          </label>
+          <button class="btn login-submit" type="submit">Entrar al punto de venta</button>
+          <p id="loginMensaje" class="mensaje" aria-live="polite"></p>
+        </form>
+        <form id="registroForm" class="login-form" hidden>
+          <label>
+            Nombre completo
+            <input id="registroNombre" type="text" autocomplete="name" required />
+          </label>
+          <label>
+            Nombre de usuario
+            <input id="registroUsuario" type="text" autocomplete="username" minlength="3" required />
+          </label>
+          <label>
+            Contraseña
+            <input id="registroPassword" type="password" autocomplete="new-password" minlength="6" required />
+          </label>
+          <label>
+            Número de teléfono
+            <input id="registroTelefono" type="tel" autocomplete="tel" required />
+          </label>
+          <button class="btn login-submit" type="submit">Crear cuenta</button>
+          <p id="registroMensaje" class="mensaje" aria-live="polite"></p>
+        </form>
+      </section>
+    </div>
+
     <header class="hero">
       <div class="hero__overlay"></div>
       <div class="hero__content container">
         <p class="kicker">Tienda Santa Cruz</p>
         <h1>Punto de venta</h1>
+        <div id="userSessionBar" class="user-session-bar" hidden>
+          <span id="sessionUsuario"></span>
+          <button id="cerrarSesionBtn" class="btn btn--ghost small" type="button">Cerrar sesión</button>
+        </div>
       </div>
     </header>
 
@@ -22,7 +72,7 @@
       <section id="alertaStockBox" class="card stock-alert" hidden>
         <div class="stock-alert__content">
           <strong>Alerta de stock minimo</strong>
-          <p id="alertaStockTexto" class="muted">Hay productos con stock bajo.</p>
+          <p id="alertaStockTexto" class="muted"></p>
         </div>
         <button id="abrirAlertaStock" class="btn btn--danger" type="button">Ver productos en riesgo</button>
       </section>
@@ -32,6 +82,14 @@
         <p class="muted">Registra entradas y salidas de producto en una ventana dedicada.</p>
         <div class="acciones">
           <button id="abrirVentanaInventario" class="btn" type="button">Abrir entrada y salida</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Pedidos</h2>
+        <p class="muted">Consulta las compras realizadas por clientes.</p>
+        <div class="acciones">
+          <button id="abrirVentanaPedidos" class="btn" type="button">Ver pedidos <span id="pedidosBadge" class="pedido-badge" hidden>0</span></button>
         </div>
       </section>
 
@@ -112,6 +170,6 @@
       </section>
     </main>
 
-    <script src="app.js?v=20261118-stock1"></script>
+    <script src="app.js?v=20261121-pedidos-live"></script>
   </body>
 </html>

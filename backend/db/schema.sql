@@ -32,7 +32,8 @@ CREATE TABLE usuarios (
   nombre VARCHAR(180) NOT NULL,
   usuario VARCHAR(80) NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
-  rol VARCHAR(30) NOT NULL CHECK (rol IN ('admin', 'cajero', 'supervisor')),
+  telefono VARCHAR(40),
+  rol VARCHAR(30) NOT NULL CHECK (rol IN ('admin', 'cajero', 'supervisor', 'cliente')),
   activo BOOLEAN NOT NULL DEFAULT TRUE,
   ultimo_login TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -56,6 +57,7 @@ CREATE TABLE cajas (
 
 CREATE TABLE clientes (
   id BIGSERIAL PRIMARY KEY,
+  usuario_id BIGINT UNIQUE REFERENCES usuarios(id) ON DELETE CASCADE,
   nombre VARCHAR(180) NOT NULL,
   telefono VARCHAR(40),
   email VARCHAR(140),

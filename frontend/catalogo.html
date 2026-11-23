@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Catálogo - Tienda Santa Cruz</title>
+    <link rel="stylesheet" href="styles.css?v=20261121-cliente" />
+  </head>
+  <body>
+    <header class="hero catalog-hero">
+      <div class="hero__overlay"></div>
+      <div class="hero__content container catalog-topbar">
+        <div>
+          <p class="kicker">Tienda Santa Cruz</p>
+          <h1>Catálogo</h1>
+        </div>
+        <div class="catalog-actions">
+          <button id="cerrarSesionCliente" class="btn btn--ghost small" type="button">Cerrar sesión</button>
+          <button id="abrirCarrito" class="btn small cart-button" type="button">
+            Carrito <span id="carritoCantidad" class="cart-count">0</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container catalog-layout">
+      <section class="catalog-toolbar">
+        <div>
+          <p id="clienteNombre" class="kicker cliente-kicker"></p>
+          <h2>Productos disponibles</h2>
+        </div>
+        <input id="buscadorCatalogo" type="search" placeholder="Buscar producto..." />
+      </section>
+
+      <p id="catalogoMensaje" class="catalog-message"></p>
+      <section id="catalogoProductos" class="product-grid"></section>
+    </main>
+
+    <script src="catalogo.js?v=20261121-cliente"></script>
+  </body>
+</html>

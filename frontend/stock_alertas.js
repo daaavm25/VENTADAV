@@ -33,9 +33,18 @@ function renderTabla(productos) {
 }
 
 async function cargarStock() {
-  const response = await fetch(`${API_BASE}/productos`, { cache: "no-store" });
+  const token = localStorage.getItem("pdv_auth_token");
+  if (!token) {
+    throw new Error("Inicia sesión desde el punto de venta para consultar stock.");
+  }
+
+  const response = await fetch(`${API_BASE}/productos`, {
+    cache: "no-store",
+    headers: { "X-Auth-Token": token }
+  });
   if (!response.ok) {
-    throw new Error("No se pudo consultar productos");
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.errores?.join(" | ") || "No se pudo consultar productos");
   }
 
   const productos = await response.json();

@@ -1,15 +1,19 @@
 import os
+import secrets
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List
 
 from flask import Flask, jsonify, request
+from werkzeug.security import check_password_hash, generate_password_hash
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from psycopg2 import IntegrityError
 
 
 app = Flask(__name__)
+
+sesiones_activas: Dict[str, Dict[str, Any]] = {}
 
 
 def filtrar_ventas_por_scope(ventas: List[Dict[str, Any]], scope: str = "hoy") -> List[Dict[str, Any]]:
@@ -59,7 +63,7 @@ def get_db_conn():
 @app.after_request
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Auth-Token"
     response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
     return response
 
@@ -73,6 +77,10 @@ def health_check():
 def listar_categorias():
     if request.method == "OPTIONS":
         return ("", 204)
+
+    denegado = requiere_roles("admin", "cajero")
+    if denegado:
+        return denegado
 
     with get_db_conn() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -94,9 +102,15 @@ def productos_handler():
     if request.method == "OPTIONS":
         return ("", 204)
 
+    denegado = requiere_roles("admin", "cajero")
+    if denegado:
+        return denegado
+
     if request.method == "GET":
         return listar_productos()
 
+    if usuario_autenticado()["rol"] != "admin":
+        return jsonify({"ok": False, "errores": ["Solo el administrador puede crear productos."]}), 403
     return crear_producto()
 
 
@@ -104,6 +118,10 @@ def productos_handler():
 def ventas_handler():
     if request.method == "OPTIONS":
         return ("", 204)
+
+    denegado = requiere_roles("admin", "cajero")
+    if denegado:
+        return denegado
 
     if request.method == "GET":
         return listar_ventas()
@@ -115,6 +133,10 @@ def ventas_handler():
 def registrar_movimiento_inventario():
     if request.method == "OPTIONS":
         return ("", 204)
+
+    denegado = requiere_roles("admin")
+    if denegado:
+        return denegado
 
     payload = request.get_json(silent=True) or {}
 
@@ -514,5 +536,296 @@ def crear_venta():
         return jsonify({"ok": False, "errores": [f"Error al guardar venta: {exc}"]}), 500
 
 
+def usuario_autenticado():
+    token = request.headers.get("X-Auth-Token", "")
+    return sesiones_activas.get(token)
+
+
+def requiere_roles(*roles):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return jsonify({"ok": False, "errores": ["Sesión no válida. Inicia sesión nuevamente."]}), 401
+    if usuario["rol"] not in roles:
+        return jsonify({"ok": False, "errores": ["No tienes permisos para realizar esta acción."]}), 403
+    return None
+
+
+@app.route("/api/auth/login", methods=["POST", "OPTIONS"])
+def login():
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    payload = request.get_json(silent=True) or {}
+    usuario = str(payload.get("usuario", "")).strip()
+    password = str(payload.get("password", ""))
+    if not usuario or not password:
+        return jsonify({"ok": False, "errores": ["Usuario y contraseña son obligatorios."]}), 400
+
+    with get_db_conn() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, nombre, usuario, password_hash, telefono, rol, activo FROM usuarios WHERE usuario = %s",
+                (usuario,),
+            )
+            fila = cur.fetchone()
+
+    if fila is None or not fila["activo"]:
+        return jsonify({"ok": False, "errores": ["Credenciales incorrectas."]}), 401
+
+    if not check_password_hash(fila["password_hash"], password):
+        return jsonify({"ok": False, "errores": ["Credenciales incorrectas."]}), 401
+
+    cliente_id = None
+    if fila["rol"] == "cliente":
+        with get_db_conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT id FROM clientes WHERE usuario_id = %s", (fila["id"],))
+                cliente = cur.fetchone()
+                if cliente:
+                    cliente_id = cliente["id"]
+
+    token = secrets.token_urlsafe(32)
+    sesiones_activas[token] = {
+        "id": fila["id"],
+        "nombre": fila["nombre"],
+        "usuario": fila["usuario"],
+        "rol": fila["rol"],
+        "telefono": fila.get("telefono"),
+        "cliente_id": cliente_id,
+    }
+
+    with get_db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE usuarios SET ultimo_login = NOW() WHERE id = %s", (fila["id"],))
+        conn.commit()
+
+    return jsonify({"ok": True, "token": token, "usuario": sesiones_activas[token]}), 200
+
+
+@app.route("/api/auth/logout", methods=["POST", "OPTIONS"])
+def logout():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    token = request.headers.get("X-Auth-Token", "")
+    sesiones_activas.pop(token, None)
+    return jsonify({"ok": True}), 200
+
+
+@app.route("/api/auth/me", methods=["GET"])
+def usuario_actual():
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return jsonify({"ok": False, "errores": ["Sesión no válida."]}), 401
+    return jsonify({"ok": True, "usuario": usuario}), 200
+
+
+@app.route("/api/auth/register", methods=["POST", "OPTIONS"])
+def registrar_cliente():
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    payload = request.get_json(silent=True) or {}
+    nombre = str(payload.get("nombre", "")).strip()
+    usuario = str(payload.get("usuario", "")).strip().lower()
+    password = str(payload.get("password", ""))
+    telefono = str(payload.get("telefono", "")).strip()
+
+    if not nombre or not usuario or not password or not telefono:
+        return jsonify({"ok": False, "errores": ["Nombre de usuario, contraseña y número son obligatorios."]}), 400
+    if len(usuario) < 3:
+        return jsonify({"ok": False, "errores": ["El nombre de usuario debe tener al menos 3 caracteres."]}), 400
+    if len(password) < 6:
+        return jsonify({"ok": False, "errores": ["La contraseña debe tener al menos 6 caracteres."]}), 400
+
+    try:
+        with get_db_conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT id FROM usuarios WHERE usuario = %s", (usuario,))
+                if cur.fetchone():
+                    return jsonify({"ok": False, "errores": ["Ese nombre de usuario ya existe."]}), 409
+
+                cur.execute(
+                    """
+                    INSERT INTO usuarios (nombre, usuario, password_hash, telefono, rol, activo)
+                    VALUES (%s, %s, %s, %s, 'cliente', TRUE)
+                    RETURNING id
+                    """,
+                    (nombre, usuario, generate_password_hash(password), telefono),
+                )
+                usuario_id = cur.fetchone()["id"]
+
+                cur.execute(
+                    """
+                    INSERT INTO clientes (nombre, telefono, activo, usuario_id)
+                    VALUES (%s, %s, TRUE, %s)
+                    RETURNING id
+                    """,
+                    (nombre, telefono, usuario_id),
+                )
+                cliente_id = cur.fetchone()["id"]
+                conn.commit()
+
+        token = secrets.token_urlsafe(32)
+        sesiones_activas[token] = {
+            "id": usuario_id,
+            "nombre": nombre,
+            "usuario": usuario,
+            "rol": "cliente",
+            "cliente_id": cliente_id,
+        }
+        return jsonify({"ok": True, "token": token, "usuario": sesiones_activas[token]}), 201
+    except Exception as exc:
+        return jsonify({"ok": False, "errores": [f"No se pudo crear la cuenta: {exc}"]}), 500
+
+
+@app.route("/api/catalogo", methods=["GET", "OPTIONS"])
+def catalogo_cliente():
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    denegado = requiere_roles("cliente", "admin", "cajero")
+    if denegado:
+        return denegado
+
+    with get_db_conn() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT p.id, p.nombre, p.descripcion, p.precio_venta,
+                       p.stock_actual, p.unidad_medida,
+                       c.nombre AS categoria_nombre
+                FROM productos p
+                JOIN categorias c ON c.id = p.categoria_id
+                WHERE p.activo = TRUE AND p.stock_actual > 0
+                ORDER BY p.nombre ASC
+                """
+            )
+            productos = cur.fetchall()
+    return jsonify(productos)
+
+
+@app.route("/api/pedidos", methods=["GET", "POST", "OPTIONS"])
+def pedidos_cliente():
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    if request.method == "GET":
+        denegado = requiere_roles("admin", "cajero")
+        if denegado:
+            return denegado
+
+        with get_db_conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT v.id, v.folio, v.fecha_hora, v.subtotal, v.iva,
+                           v.total, v.estatus,
+                           COALESCE(cl.nombre, u.nombre) AS cliente_nombre,
+                           COALESCE(cl.telefono, u.telefono) AS cliente_telefono
+                    FROM ventas v
+                    JOIN usuarios u ON u.id = v.usuario_id
+                    LEFT JOIN clientes cl ON cl.id = v.cliente_id
+                    WHERE v.folio LIKE 'PED-%'
+                    ORDER BY v.fecha_hora DESC
+                    """
+                )
+                pedidos = cur.fetchall()
+
+                resultado = []
+                for pedido in pedidos:
+                    cur.execute(
+                        """
+                        SELECT p.nombre, vd.cantidad, vd.precio_unitario,
+                               vd.total_linea
+                        FROM venta_detalle vd
+                        JOIN productos p ON p.id = vd.producto_id
+                        WHERE vd.venta_id = %s
+                        ORDER BY p.nombre ASC
+                        """,
+                        (pedido["id"],),
+                    )
+                    pedido["productos"] = cur.fetchall()
+                    resultado.append(pedido)
+
+        return jsonify(resultado)
+
+    denegado = requiere_roles("cliente")
+    if denegado:
+        return denegado
+
+    usuario = usuario_autenticado()
+    items = (request.get_json(silent=True) or {}).get("items", [])
+    if not isinstance(items, list) or not items:
+        return jsonify({"ok": False, "errores": ["El pedido debe incluir productos."]}), 400
+
+    try:
+        subtotal = Decimal("0")
+        detalles_validos = []
+
+        with get_db_conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                for entry in items:
+                    producto_id = int(entry.get("id"))
+                    cantidad = Decimal(str(entry.get("cantidad", 0)))
+                    if cantidad <= 0:
+                        raise ValueError("La cantidad debe ser mayor a cero.")
+
+                    cur.execute(
+                        "SELECT id, nombre, precio_venta, stock_actual FROM productos WHERE id = %s AND activo = TRUE FOR UPDATE",
+                        (producto_id,),
+                    )
+                    producto = cur.fetchone()
+                    if not producto:
+                        raise ValueError("Producto no encontrado.")
+                    if Decimal(str(producto["stock_actual"])) < cantidad:
+                        raise ValueError(f"Stock insuficiente para {producto['nombre']}.")
+
+                    precio = Decimal(str(producto["precio_venta"]))
+                    subtotal += precio * cantidad
+                    detalles_validos.append((producto_id, cantidad, precio))
+
+                iva = Decimal("0")
+                total = subtotal
+                folio = f"PED-{datetime.now().strftime('%Y%m%d%H%M%S')}-{usuario['id']}"
+
+                cur.execute(
+                    """
+                    INSERT INTO ventas (
+                      folio, usuario_id, caja_id, cliente_id, metodo_pago_id,
+                      subtotal, iva, total, estatus
+                    )
+                    VALUES (%s, %s, 1, %s, 1, %s, %s, %s, 'pagada')
+                    RETURNING id, folio, subtotal, iva, total
+                    """,
+                    (folio, usuario["id"], usuario.get("cliente_id"), float(subtotal), float(iva), float(total)),
+                )
+                venta = cur.fetchone()
+
+                for producto_id, cantidad, precio in detalles_validos:
+                    subtotal_linea = cantidad * precio
+                    cur.execute(
+                        """
+                        INSERT INTO venta_detalle (
+                          venta_id, producto_id, cantidad, precio_unitario,
+                          descuento_linea, impuesto_linea, subtotal_linea, total_linea
+                        )
+                        VALUES (%s, %s, %s, %s, 0, 0, %s, %s)
+                        """,
+                        (venta["id"], producto_id, float(cantidad), float(precio), float(subtotal_linea), float(subtotal_linea)),
+                    )
+                    cur.execute(
+                        "UPDATE productos SET stock_actual = stock_actual - %s, updated_at = NOW() WHERE id = %s",
+                        (float(cantidad), producto_id),
+                    )
+
+                conn.commit()
+
+        return jsonify({"ok": True, "pedido": venta}), 201
+    except ValueError as exc:
+        return jsonify({"ok": False, "errores": [str(exc)]}), 400
+    except Exception as exc:
+        return jsonify({"ok": False, "errores": [f"Error al crear pedido: {exc}"]}), 500
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
