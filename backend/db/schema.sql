@@ -19,6 +19,7 @@ DROP TABLE IF EXISTS sucursales CASCADE;
 DROP TABLE IF EXISTS usuarios CASCADE;
 DROP TABLE IF EXISTS categorias CASCADE;
 DROP TABLE IF EXISTS configuracion CASCADE;
+DROP TABLE IF EXISTS pagos_pendientes CASCADE;
 
 CREATE TABLE categorias (
   id BIGSERIAL PRIMARY KEY,
@@ -181,6 +182,21 @@ CREATE TABLE configuracion (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE pagos_pendientes (
+  id BIGSERIAL PRIMARY KEY,
+  external_reference VARCHAR(80) NOT NULL UNIQUE,
+  preference_id VARCHAR(80),
+  payment_id VARCHAR(80),
+  usuario_id BIGINT NOT NULL REFERENCES usuarios(id),
+  cliente_id BIGINT REFERENCES clientes(id),
+  items JSONB NOT NULL,
+  monto NUMERIC(12,2) NOT NULL CHECK (monto >= 0),
+  estatus VARCHAR(20) NOT NULL DEFAULT 'pending',
+  venta_id BIGINT UNIQUE REFERENCES ventas(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Indices de rendimiento
 CREATE INDEX idx_productos_nombre ON productos (nombre);
 CREATE INDEX idx_ventas_fecha_hora ON ventas (fecha_hora);
@@ -201,7 +217,8 @@ INSERT INTO categorias (nombre) VALUES
 INSERT INTO metodos_pago (nombre) VALUES
 ('efectivo'),
 ('tarjeta'),
-('transferencia');
+('transferencia'),
+('mercado_pago');
 
 INSERT INTO sucursales (nombre, direccion) VALUES
 ('Sucursal Centro', 'Zona Centro');

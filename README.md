@@ -97,3 +97,41 @@ python3 api.py
 ```
 
 Con la API encendida, el apartado `Agregar producto` de `frontend/index.html` guarda en PostgreSQL.
+
+## Pagos en línea con Mercado Pago
+
+1. Instala las dependencias:
+
+```bash
+cd /home/david/Escritorio/VENTADAV
+.venv/bin/python -m pip install -r backend/requirements.txt
+```
+
+2. Aplica la migración a una base existente:
+
+```bash
+psql -U postgres -d nombre_de_tu_bd -f backend/db/migration_mercado_pago.sql
+```
+
+Para una instalación nueva, el esquema `backend/db/schema.sql` ya incluye pagos pendientes y el método `mercado_pago`.
+
+3. Configura credenciales de prueba o producción:
+
+```bash
+export MERCADO_PAGO_ACCESS_TOKEN='APP_USR-...'
+export MERCADO_PAGO_WEBHOOK_SECRET='clave_si_configuras_notificaciones'
+export MERCADO_PAGO_CURRENCY='MXN'
+export FRONTEND_PUBLIC_URL='http://localhost:5500'
+export PUBLIC_API_URL='https://tu-dominio-publico.example'
+```
+
+4. Sirve el frontend por HTTP:
+
+```bash
+cd /home/david/Escritorio/VENTADAV/frontend
+python3 -m http.server 5500
+```
+
+5. Inicia la API y abre `http://localhost:5500/index.html`. El botón del carrito abrirá Checkout Pro. El pedido y el descuento de stock se crean únicamente después de que Mercado Pago confirme que el pago fue aprobado.
+
+Para desarrollo local sin dominio público, usa un túnel HTTPS y registra la URL pública del webhook como `https://tu-dominio/api/pagos/webhook`. No uses Access Tokens ni tarjetas reales durante pruebas; utiliza las tarjetas y credenciales de prueba de Mercado Pago.

@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 .venv/
 .vscode/
+.env
+.env.*
+backend/.env
+backend/.env.*

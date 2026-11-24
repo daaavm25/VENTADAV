@@ -3,11 +3,5 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-export DB_HOST="localhost"
-export DB_PORT="5432"
-export DB_NAME="pos_abarrotera"
-export DB_USER="pos_app"
-export DB_PASSWORD="1234567"
-
 cd "$ROOT_DIR/backend/src"
-python3 api.py
+exec "$ROOT_DIR/.venv/bin/python" api.py

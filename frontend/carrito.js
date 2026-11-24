@@ -84,9 +84,9 @@ document.getElementById("finalizarPedido").addEventListener("click", async () =>
     return;
   }
 
-  pedidoMensaje.textContent = "Registrando pedido...";
+  pedidoMensaje.textContent = "Abriendo Mercado Pago...";
   try {
-    const response = await fetch(`${API_BASE}/pedidos`, {
+    const response = await fetch(`${API_BASE}/pagos/preferencia`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -98,17 +98,58 @@ document.getElementById("finalizarPedido").addEventListener("click", async () =>
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || !body.ok) {
-      pedidoMensaje.textContent = body.errores?.join(" | ") || "No se pudo registrar el pedido.";
+      pedidoMensaje.textContent = body.errores?.join(" | ") || "No se pudo iniciar el pago.";
       return;
     }
 
-    carrito = [];
-    localStorage.removeItem(CART_KEY);
-    render();
-    pedidoMensaje.textContent = `Pedido registrado: ${body.pedido.folio}`;
+    localStorage.setItem("pdv_mp_external_reference", body.external_reference);
+    window.location.assign(body.init_point);
   } catch (error) {
-    pedidoMensaje.textContent = "No fue posible conectar con la API.";
+    pedidoMensaje.textContent = "No fue posible conectar con Mercado Pago.";
   }
 });
 
+document.getElementById("finalizarPedido").textContent = "Pagar con Mercado Pago";
+
+async function consultarConfirmacionPago() {
+  const params = new URLSearchParams(window.location.search);
+  const externalReference = params.get("external_reference");
+  if (!externalReference) return;
+
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) {
+    window.location.href = "index.html";
+    return;
+  }
+
+  pedidoMensaje.textContent = "Verificando el pago...";
+  try {
+    const response = await fetch(`${API_BASE}/pagos/estado/${encodeURIComponent(externalReference)}`, {
+      headers: { "X-Auth-Token": token },
+      cache: "no-store",
+    });
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok || !body.ok) {
+      pedidoMensaje.textContent = body.errores?.join(" | ") || "No se pudo confirmar el pago.";
+      return;
+    }
+
+    if (body.estado === "approved" && body.pedido) {
+      carrito = [];
+      localStorage.removeItem(CART_KEY);
+      render();
+      pedidoMensaje.textContent = `Pago aprobado. Pedido confirmado: ${body.pedido.folio}`;
+      window.history.replaceState({}, document.title, "carrito.html");
+    } else {
+      pedidoMensaje.textContent = body.estado === "rejected"
+        ? "El pago fue rechazado. Puedes intentarlo nuevamente."
+        : "El pago está pendiente de confirmación.";
+    }
+  } catch (error) {
+    pedidoMensaje.textContent = "No fue posible verificar el pago con Mercado Pago.";
+  }
+}
+
 render();
+consultarConfirmacionPago();
