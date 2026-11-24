@@ -1,9 +1,16 @@
 import os
+import json
+import hmac
+import hashlib
 import secrets
+import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List
+from pathlib import Path
+from dotenv import load_dotenv
 
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 from flask import Flask, jsonify, request
 from werkzeug.security import check_password_hash, generate_password_hash
 import psycopg2
@@ -827,5 +834,370 @@ def pedidos_cliente():
         return jsonify({"ok": False, "errores": [f"Error al crear pedido: {exc}"]}), 500
 
 
+try:
+    import mercadopago
+except ImportError:
+    mercadopago = None
+
+
+def mercado_pago_sdk():
+    access_token = os.getenv("MERCADO_PAGO_ACCESS_TOKEN", "").strip()
+    if not access_token:
+        return None, "Mercado Pago no está configurado. Falta MERCADO_PAGO_ACCESS_TOKEN."
+    if mercadopago is None:
+        return None, "Falta instalar la dependencia mercadopago."
+    return mercadopago.SDK(access_token=access_token), None
+
+
+def verificar_firma_mercado_pago():
+    secret = os.getenv("MERCADO_PAGO_WEBHOOK_SECRET", "").strip()
+    if not secret:
+        return True
+
+    signature = request.headers.get("x-signature", "")
+    request_id = request.headers.get("x-request-id", "")
+    partes = {}
+    for parte in signature.split(";"):
+        clave, sep, valor = parte.strip().partition("=")
+        if sep:
+            partes[clave] = valor
+
+    ts = partes.get("ts", "")
+    firma = partes.get("v1", "")
+    if not ts or not firma:
+        return False
+
+    payment_id = ""
+    payload = request.get_json(silent=True) or {}
+    data = payload.get("data") or {}
+    if isinstance(data, dict):
+        payment_id = str(data.get("id") or "")
+
+    manifest = f"id:{payment_id};request-id:{request_id};ts:{ts};"
+    esperada = hmac.new(secret.encode(), manifest.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(firma, esperada)
+
+
+def consultar_pago_mercado_pago(payment_id=None, external_reference=None):
+    sdk, error = mercado_pago_sdk()
+    if error:
+        return None, error
+
+    try:
+        if payment_id:
+            respuesta = sdk.payment().get(str(payment_id))
+            return (respuesta.get("response") if isinstance(respuesta, dict) else None), None
+
+        if external_reference:
+            respuesta = sdk.payment().search(filters={"external_reference": external_reference})
+            response = respuesta.get("response") if isinstance(respuesta, dict) else None
+            resultados = response.get("results", []) if isinstance(response, dict) else []
+            aprobados = [pago for pago in resultados if pago.get("status") == "approved"]
+            if aprobados:
+                return aprobados[0], None
+            if resultados:
+                return resultados[0], None
+        return None, None
+    except Exception as exc:
+        return None, f"No se pudo consultar Mercado Pago: {exc}"
+
+
+def confirmar_pago_y_crear_pedido(external_reference, payment_id=None):
+    pago, error = consultar_pago_mercado_pago(payment_id=payment_id, external_reference=external_reference)
+    if error:
+        return None, error
+    if not pago:
+        return {"estado": "pendiente", "pedido": None}, None
+
+    estado_pago = str(pago.get("status", "")).lower()
+    mp_payment_id = str(pago.get("id") or payment_id or "")
+
+    try:
+        with get_db_conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT * FROM pagos_pendientes WHERE external_reference = %s FOR UPDATE",
+                    (external_reference,),
+                )
+                pendiente = cur.fetchone()
+                if pendiente is None:
+                    return None, "Pago no asociado a un pedido válido."
+
+                if pendiente["estatus"] == "approved" and pendiente["venta_id"]:
+                    cur.execute("SELECT folio, total FROM ventas WHERE id = %s", (pendiente["venta_id"],))
+                    venta = cur.fetchone()
+                    conn.commit()
+                    return {"estado": "approved", "pedido": venta}, None
+
+                if estado_pago != "approved":
+                    cur.execute(
+                        "UPDATE pagos_pendientes SET estatus = %s, payment_id = %s, updated_at = NOW() WHERE external_reference = %s",
+                        (estado_pago, mp_payment_id or None, external_reference),
+                    )
+                    conn.commit()
+                    return {"estado": estado_pago, "pedido": None}, None
+
+                items = pendiente["items"]
+                if isinstance(items, str):
+                    items = json.loads(items)
+
+                subtotal = Decimal("0")
+                detalles = []
+                for entry in items:
+                    producto_id = int(entry["id"])
+                    cantidad = Decimal(str(entry["cantidad"]))
+                    cur.execute(
+                        "SELECT id, nombre, precio_venta, stock_actual FROM productos WHERE id = %s AND activo = TRUE FOR UPDATE",
+                        (producto_id,),
+                    )
+                    producto = cur.fetchone()
+                    if producto is None:
+                        raise ValueError("Producto no encontrado al confirmar el pago.")
+                    if Decimal(str(producto["stock_actual"])) < cantidad:
+                        raise ValueError(f"Stock insuficiente para {producto['nombre']}.")
+
+                    precio = Decimal(str(producto["precio_venta"]))
+                    subtotal += precio * cantidad
+                    detalles.append((producto_id, cantidad, precio))
+
+                if abs(float(subtotal) - float(pendiente["monto"])) > 0.01:
+                    raise ValueError("El importe pagado no coincide con el importe actual del pedido.")
+
+                cur.execute(
+                    "SELECT id FROM metodos_pago WHERE nombre = 'mercado_pago' AND activo = TRUE"
+                )
+                metodo = cur.fetchone()
+                if metodo is None:
+                    cur.execute(
+                        "INSERT INTO metodos_pago (nombre, activo) VALUES ('mercado_pago', TRUE) ON CONFLICT (nombre) DO UPDATE SET activo = TRUE RETURNING id"
+                    )
+                    metodo = cur.fetchone()
+
+                folio = f"PED-MP-{datetime.now().strftime('%Y%m%d%H%M%S')}-{pendiente['usuario_id']}"
+                cur.execute(
+                    """
+                    INSERT INTO ventas (
+                      folio, usuario_id, caja_id, cliente_id, metodo_pago_id,
+                      subtotal, iva, total, estatus
+                    )
+                    VALUES (%s, %s, 1, %s, %s, %s, 0, %s, 'pagada')
+                    RETURNING id, folio, subtotal, iva, total
+                    """,
+                    (
+                        folio,
+                        pendiente["usuario_id"],
+                        pendiente["cliente_id"],
+                        metodo["id"],
+                        float(subtotal),
+                        float(subtotal),
+                    ),
+                )
+                venta = cur.fetchone()
+
+                for producto_id, cantidad, precio in detalles:
+                    subtotal_linea = cantidad * precio
+                    cur.execute(
+                        """
+                        INSERT INTO venta_detalle (
+                          venta_id, producto_id, cantidad, precio_unitario,
+                          descuento_linea, impuesto_linea, subtotal_linea, total_linea
+                        )
+                        VALUES (%s, %s, %s, %s, 0, 0, %s, %s)
+                        """,
+                        (
+                            venta["id"], producto_id, float(cantidad), float(precio),
+                            float(subtotal_linea), float(subtotal_linea),
+                        ),
+                    )
+                    cur.execute(
+                        "UPDATE productos SET stock_actual = stock_actual - %s, updated_at = NOW() WHERE id = %s",
+                        (float(cantidad), producto_id),
+                    )
+
+                cur.execute(
+                    """
+                    UPDATE pagos_pendientes
+                    SET estatus = 'approved', payment_id = %s, venta_id = %s, updated_at = NOW()
+                    WHERE external_reference = %s
+                    """,
+                    (mp_payment_id or None, venta["id"], external_reference),
+                )
+                conn.commit()
+                return {"estado": "approved", "pedido": venta}, None
+    except ValueError as exc:
+        return None, str(exc)
+    except Exception as exc:
+        return None, f"Error al confirmar el pago: {exc}"
+
+
+@app.route("/api/pagos/preferencia", methods=["POST", "OPTIONS"])
+def crear_preferencia_mercado_pago():
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    denegado = requiere_roles("cliente")
+    if denegado:
+        return denegado
+
+    sdk, error = mercado_pago_sdk()
+    if error:
+        return jsonify({"ok": False, "errores": [error]}), 503
+
+    usuario = usuario_autenticado()
+    items = (request.get_json(silent=True) or {}).get("items", [])
+    if not isinstance(items, list) or not items:
+        return jsonify({"ok": False, "errores": ["El carrito está vacío."]}), 400
+
+    try:
+        monto = Decimal("0")
+        mp_items = []
+        detalles = []
+
+        with get_db_conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                for entry in items:
+                    producto_id = int(entry.get("id"))
+                    cantidad = Decimal(str(entry.get("cantidad", 0)))
+                    if cantidad <= 0:
+                        raise ValueError("La cantidad debe ser mayor a cero.")
+
+                    cur.execute(
+                        "SELECT id, nombre, precio_venta, stock_actual FROM productos WHERE id = %s AND activo = TRUE FOR UPDATE",
+                        (producto_id,),
+                    )
+                    producto = cur.fetchone()
+                    if producto is None:
+                        raise ValueError("Producto no encontrado.")
+                    if Decimal(str(producto["stock_actual"])) < cantidad:
+                        raise ValueError(f"Stock insuficiente para {producto['nombre']}.")
+
+                    precio = Decimal(str(producto["precio_venta"])).quantize(Decimal("0.01"))
+                    monto += precio * cantidad
+                    cantidad_num = float(cantidad)
+                    detalles.append({"id": producto_id, "cantidad": cantidad_num, "precio": float(precio)})
+                    mp_items.append({
+                        "id": str(producto_id),
+                        "title": producto["nombre"],
+                        "quantity": cantidad_num,
+                        "unit_price": float(precio),
+                        "currency_id": os.getenv("MERCADO_PAGO_CURRENCY", "MXN"),
+                    })
+
+                external_reference = f"PED-MP-{uuid.uuid4().hex}"
+                cur.execute(
+                    """
+                    INSERT INTO pagos_pendientes (
+                      external_reference, usuario_id, cliente_id, items, monto, estatus
+                    )
+                    VALUES (%s, %s, %s, %s::jsonb, %s, 'pending')
+                    """,
+                    (
+                        external_reference,
+                        usuario["id"],
+                        usuario.get("cliente_id"),
+                        json.dumps(detalles),
+                        float(monto),
+                    ),
+                )
+                conn.commit()
+
+        frontend_url = os.getenv("FRONTEND_PUBLIC_URL", "http://localhost:5500").rstrip("/")
+        api_url = os.getenv("PUBLIC_API_URL", "").rstrip("/")
+        preference = {
+            "items": mp_items,
+            "external_reference": external_reference,
+            "back_urls": {
+                "success": f"{frontend_url}/carrito.html",
+                "pending": f"{frontend_url}/carrito.html",
+                "failure": f"{frontend_url}/carrito.html",
+            },
+            "metadata": {"external_reference": external_reference, "usuario_id": usuario["id"]},
+        }
+        if api_url:
+            preference["notification_url"] = f"{api_url}/api/pagos/webhook"
+
+        respuesta = sdk.preference().create(preference)
+        response = respuesta.get("response") if isinstance(respuesta, dict) else None
+        if not response or not response.get("init_point"):
+            raise RuntimeError(str(respuesta))
+
+        with get_db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE pagos_pendientes SET preference_id = %s, updated_at = NOW() WHERE external_reference = %s",
+                    (response.get("id"), external_reference),
+                )
+            conn.commit()
+
+        return jsonify({
+            "ok": True,
+            "external_reference": external_reference,
+            "init_point": response["init_point"],
+            "sandbox_init_point": response.get("sandbox_init_point"),
+        }), 201
+    except (TypeError, ValueError, InvalidOperation) as exc:
+        return jsonify({"ok": False, "errores": [str(exc)]}), 400
+    except Exception as exc:
+        return jsonify({"ok": False, "errores": [f"No se pudo iniciar el pago: {exc}"]}), 502
+
+
+@app.route("/api/pagos/estado/<external_reference>", methods=["GET", "OPTIONS"])
+def estado_pago_mercado_pago(external_reference):
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    denegado = requiere_roles("cliente")
+    if denegado:
+        return denegado
+
+    usuario = usuario_autenticado()
+    with get_db_conn() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT usuario_id, estatus, venta_id FROM pagos_pendientes WHERE external_reference = %s",
+                (external_reference,),
+            )
+            pendiente = cur.fetchone()
+
+    if pendiente is None or pendiente["usuario_id"] != usuario["id"]:
+        return jsonify({"ok": False, "errores": ["Pago no encontrado."]}), 404
+
+    resultado, error = confirmar_pago_y_crear_pedido(external_reference)
+    if error:
+        return jsonify({"ok": False, "errores": [error]}), 502
+
+    if resultado["estado"] == "approved" and resultado["pedido"]:
+        return jsonify({"ok": True, "estado": "approved", "pedido": resultado["pedido"]})
+    return jsonify({"ok": True, "estado": resultado["estado"]})
+
+
+@app.route("/api/pagos/webhook", methods=["POST"])
+def webhook_mercado_pago():
+    if not verificar_firma_mercado_pago():
+        return jsonify({"ok": False, "errores": ["Firma inválida."]}), 401
+
+    payload = request.get_json(silent=True) or {}
+    payment_id = None
+    if str(payload.get("type") or payload.get("topic") or "").lower() in {"payment", "payments"}:
+        data = payload.get("data") or {}
+        if isinstance(data, dict):
+            payment_id = data.get("id")
+
+    if not payment_id:
+        payment_id = request.args.get("id") or request.args.get("data.id")
+    if not payment_id:
+        return ("", 200)
+
+    pago, error = consultar_pago_mercado_pago(payment_id=str(payment_id))
+    if error or not pago:
+        return ("", 200)
+
+    external_reference = pago.get("external_reference")
+    if external_reference:
+        confirmar_pago_y_crear_pedido(str(external_reference), str(payment_id))
+    return ("", 200)
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+
