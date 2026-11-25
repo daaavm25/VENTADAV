@@ -8,6 +8,7 @@ const carritoTotal = document.getElementById("carritoTotal");
 const pedidoMensaje = document.getElementById("pedidoMensaje");
 
 let carrito = JSON.parse(localStorage.getItem(CART_KEY) || "[]");
+let mercadoPago = null;
 
 function formatMoney(value) {
   return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(Number(value || 0));
@@ -151,5 +152,24 @@ async function consultarConfirmacionPago() {
   }
 }
 
+async function inicializarMercadoPago() {
+  try {
+    const response = await fetch(`${API_BASE}/config/mercadopago`);
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || !body.ok || !body.publicKey) {
+      throw new Error(body.errores?.join(" | ") || "No se pudo cargar la configuración de Mercado Pago.");
+    }
+
+    if (body.publicKey.includes("AQUI-VA") || typeof window.MercadoPago !== "function") {
+      throw new Error("Configura una Public Key real de producción en MERCADO_PAGO_PUBLIC_KEY.");
+    }
+
+    mercadoPago = new window.MercadoPago(body.publicKey, { locale: body.locale || "es-MX" });
+  } catch (error) {
+    pedidoMensaje.textContent = error.message;
+  }
+}
+
+inicializarMercadoPago();
 render();
 consultarConfirmacionPago();

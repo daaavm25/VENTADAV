@@ -10,7 +10,11 @@ from typing import Any, Dict, List
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+src_dir = Path(__file__).resolve().parent
+backend_dir = src_dir.parent
+load_dotenv(src_dir / ".env", override=True)
+load_dotenv(backend_dir / ".env", override=True)
+
 from flask import Flask, jsonify, request
 from werkzeug.security import check_password_hash, generate_password_hash
 import psycopg2
@@ -842,8 +846,17 @@ except ImportError:
 
 def mercado_pago_sdk():
     access_token = os.getenv("MERCADO_PAGO_ACCESS_TOKEN", "").strip()
+    public_key = os.getenv("MERCADO_PAGO_PUBLIC_KEY", "").strip()
+    mode = os.getenv("MERCADO_PAGO_ENV", "production").strip().lower()
     if not access_token:
         return None, "Mercado Pago no está configurado. Falta MERCADO_PAGO_ACCESS_TOKEN."
+    if not public_key:
+        return None, "Mercado Pago no está configurado. Falta MERCADO_PAGO_PUBLIC_KEY."
+    if mode == "production":
+        if access_token.startswith("TEST-") or public_key.startswith("TEST-"):
+            return None, "No se pueden mezclar credenciales de prueba con el modo de producción."
+        if not access_token.startswith("APP_USR-") or not public_key.startswith("APP_USR-"):
+            return None, "Las credenciales de Mercado Pago no tienen formato de producción."
     if mercadopago is None:
         return None, "Falta instalar la dependencia mercadopago."
     return mercadopago.SDK(access_token=access_token), None
@@ -1196,6 +1209,26 @@ def webhook_mercado_pago():
     if external_reference:
         confirmar_pago_y_crear_pedido(str(external_reference), str(payment_id))
     return ("", 200)
+
+
+@app.route("/api/config/mercadopago", methods=["GET", "OPTIONS"])
+def config_mercado_pago():
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    public_key = os.getenv("MERCADO_PAGO_PUBLIC_KEY", "").strip()
+    if not public_key:
+        return jsonify({
+            "ok": False,
+            "errores": ["Mercado Pago no está configurado. Falta MERCADO_PAGO_PUBLIC_KEY."],
+        }), 503
+
+    return jsonify({
+        "ok": True,
+        "publicKey": public_key,
+        "locale": "es-MX",
+        "mode": os.getenv("MERCADO_PAGO_ENV", "production").strip().lower(),
+    })
 
 
 if __name__ == "__main__":
